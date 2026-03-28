@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <queue>
 #include <cmath>
+#include <random>
+#include <fstream>
+#include <iostream>
 
 // Check if a path exists from start to end using BFS
 bool IsPathClear(Vector2 start, Vector2 end, const std::vector<Entity>& entities, 
@@ -72,13 +75,12 @@ bool IsPathClear(Vector2 start, Vector2 end, const std::vector<Entity>& entities
 }
 
 // Generate a random world with guaranteed passability
-void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& params) {
-    // Clear existing walls and players since we will regenerate based on territories
-    entities.erase(
-        std::remove_if(entities.begin(), entities.end(), 
-                      [](const Entity& e) { return e.type == EntityType::WALL || e.type == EntityType::PLAYER; }),
-        entities.end()
-    );
+std::vector<Vector2> GenerateRandomWorld(std::vector<Entity>& outWalls, const WorldGenParams& params) {
+    // Use thread-safe random number generation with a provided seed
+    std::mt19937 rng(params.seed);
+    auto GetRand = [&](int a, int b) { 
+        return std::uniform_int_distribution<int>(a, b)(rng); 
+    };
 
     int maxPlayers = params.numPlayers;
     if (maxPlayers < 1) maxPlayers = 1;
@@ -103,16 +105,12 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
 
     for (int i = 0; i < T; i++) {
         int col = i % cols;
-        int row = i / rows; // Wait, row = i / cols; my bad, wait
-
-        row = i / cols;
+        int row = i / cols;
 
         float centerX = col * terrWidth + terrWidth / 2.0f;
         float centerY = row * terrHeight + terrHeight / 2.0f;
 
         if (i < maxPlayers) {
-            float pSize = 32.0f;
-            entities.push_back(Entity{{centerX, centerY}, {pSize, pSize}, EntityType::PLAYER});
             playerSpawns.push_back({centerX, centerY});
         }
     }
@@ -125,14 +123,14 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
             int endY = startY + terrCellsY;
 
             int gapSize = std::max(3, params.minPathWidth + 2);
-            int gapStart = GetRandomValue(startY + 2, endY - gapSize - 2);
+            int gapStart = GetRand(startY + 2, endY - gapSize - 2);
 
             for (int y = startY; y < endY; y++) {
                 if (y >= gapStart && y < gapStart + gapSize) continue;
 
                 Vector2 wallPos = {borderX * params.gridSize + params.gridSize / 2.0f,
                                    y * params.gridSize + params.gridSize / 2.0f};
-                entities.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
+                outWalls.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
             }
         }
     }
@@ -145,7 +143,7 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
             int endX = startX + terrCellsX;
 
             int gapSize = std::max(3, params.minPathWidth + 2);
-            int gapStart = GetRandomValue(startX + 2, endX - gapSize - 2);
+            int gapStart = GetRand(startX + 2, endX - gapSize - 2);
 
             for (int x = startX; x < endX; x++) {
                 if (x >= gapStart && x < gapStart + gapSize) continue;
@@ -153,7 +151,7 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
 
                 Vector2 wallPos = {x * params.gridSize + params.gridSize / 2.0f,
                                    borderY * params.gridSize + params.gridSize / 2.0f};
-                entities.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
+                outWalls.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
             }
         }
     }
@@ -167,8 +165,8 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
     while (wallsPlaced < targetWallCount && attempts < maxAttempts) {
         attempts++;
 
-        int cellX = GetRandomValue(1, gridCellsX - 2);
-        int cellY = GetRandomValue(1, gridCellsY - 2);
+        int cellX = GetRand(1, gridCellsX - 2);
+        int cellY = GetRand(1, gridCellsY - 2);
 
         // Avoid borders
         bool onBorder = false;
@@ -176,8 +174,8 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
         for (int r = 1; r < rows; r++) if (cellY == r * terrCellsY) onBorder = true;
         if (onBorder) continue;
 
-        int wallWidth = GetRandomValue(1, 3) * params.gridSize;
-        int wallHeight = GetRandomValue(1, 3) * params.gridSize;
+        int wallWidth = GetRand(1, 3) * params.gridSize;
+        int wallHeight = GetRand(1, 3) * params.gridSize;
 
         Vector2 wallPos = {cellX * params.gridSize + params.gridSize / 2.0f, 
                            cellY * params.gridSize + params.gridSize / 2.0f};
@@ -200,7 +198,7 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
                                 static_cast<float>(wallWidth), static_cast<float>(wallHeight)};
 
         bool overlaps = false;
-        for (const auto& entity : entities) {
+        for (const auto& entity : outWalls) {
             if (entity.type == EntityType::WALL) {
                 if (CheckCollisionRecs(newWallRect, entity.getRect())) {
                     overlaps = true;
@@ -209,25 +207,25 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
             }
         }
 
-        if (overlaps) {
-            continue;
-        }
+        if (overlaps) continue;
 
         // Temporarily add wall to check if path still exists
-        entities.push_back(Entity{wallPos, {static_cast<float>(wallWidth), static_cast<float>(wallHeight)}, EntityType::WALL});
+        outWalls.push_back(Entity{wallPos, {static_cast<float>(wallWidth), static_cast<float>(wallHeight)}, EntityType::WALL});
 
         bool shouldValidatePath = (wallsPlaced >= 20 && wallsPlaced % 5 == 0);
         bool pathValid = true;
 
         if (shouldValidatePath && playerSpawns.size() > 1) {
-            // Validate connection between the first and last spawned player
-            pathValid = IsPathClear(playerSpawns[0], playerSpawns.back(), entities, params.gridSize, params.mapWidth, params.mapHeight);
+            // Validate connection between the first and last spawned player location
+            pathValid = IsPathClear(playerSpawns[0], playerSpawns.back(), outWalls, params.gridSize, params.mapWidth, params.mapHeight);
         }
 
         if (pathValid) {
             wallsPlaced++;
         } else {
-            entities.pop_back();
+            outWalls.pop_back();
         }
     }
+
+    return playerSpawns;
 }

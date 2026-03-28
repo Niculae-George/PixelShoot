@@ -26,10 +26,20 @@ add_subdirectory(thirdparty/raylib-5.0)
 add_subdirectory(thirdparty/imgui-docking)
 add_subdirectory(thirdparty/rlImGui)
 
-
 # MY_SOURCES is defined to be a list of all the source files for my game 
 # DON'T ADD THE SOURCES BY HAND, they are already added with this macro
 file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+
+add_executable(server server_main.cpp)
+set_property(TARGET server PROPERTY CXX_STANDARD 26)
+target_include_directories(server PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")
+if(MSVC) 
+	target_compile_definitions(server PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(WIN32)
+	target_link_libraries(server PRIVATE ws2_32 winmm)
+endif()
 
 add_executable("${CMAKE_PROJECT_NAME}" main.cpp)
 
@@ -61,5 +71,5 @@ target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC "${CMAKE_CURRENT_SOURC
 
 # Link raylib library statically, Here wou would add other libraries!
 target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE 
-	raylib_static imgui rlimgui
+	raylib_static imgui rlimgui ws2_32 winmm
 )

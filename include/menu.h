@@ -55,6 +55,8 @@ public:
     // State queries
     bool ShouldStartGame() const { return shouldStartGame; }
     bool ShouldQuit() const { return shouldQuit; }
+    bool IsHost() const { return isHost; }
+    std::string GetTargetIP() const { return targetIP; }
 
     void ResetForGameStart() { shouldStartGame = false; }
 
@@ -68,6 +70,10 @@ private:
     // State
     bool shouldStartGame;
     bool shouldQuit;
+    bool isHost;
+
+    std::string targetIP = "127.0.0.1";
+    bool typingIP = false;
 
     void CreateButtons();
 };

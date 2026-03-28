@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "net_utils.h"
+
 #include "raylib.h"
 #include "entity.h"
 #include "world.h"
@@ -11,6 +13,8 @@
 #include "stages.h"
 
 int main() {
+	InitENet();
+
 	// 1. Initialize Window
 	constexpr int screenWidth = 1600;
 	constexpr int screenHeight = 900;
