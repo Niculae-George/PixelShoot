@@ -11,6 +11,7 @@ struct WorldGenParams {
     int wallDensity;        // Percentage of grid cells that should have walls (0-100)
     int minPathWidth;       // Minimum width of pathways (in grid cells)
     int spawnSafeZone;      // Safe zone radius around player spawn (in grid cells)
+    int numPlayers;         // Number of players
 };
 
 // Check if a path exists from start to end using BFS

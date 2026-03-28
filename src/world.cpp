@@ -73,60 +73,133 @@ bool IsPathClear(Vector2 start, Vector2 end, const std::vector<Entity>& entities
 
 // Generate a random world with guaranteed passability
 void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& params) {
-    // Get player position before clearing walls
-    Entity* player = nullptr;
-    for (auto& entity : entities) {
-        if (entity.type == EntityType::PLAYER) {
-            player = &entity;
-            break;
-        }
-    }
-
-    if (!player) return;  // No player to validate against
-
-    // Clear existing walls (keep players)
+    // Clear existing walls and players since we will regenerate based on territories
     entities.erase(
         std::remove_if(entities.begin(), entities.end(), 
-                      [](const Entity& e) { return e.type == EntityType::WALL; }),
+                      [](const Entity& e) { return e.type == EntityType::WALL || e.type == EntityType::PLAYER; }),
         entities.end()
     );
 
-    // Generate random walls
+    int maxPlayers = params.numPlayers;
+    if (maxPlayers < 1) maxPlayers = 1;
+
+    // The number of territories must be even.
+    int T = maxPlayers % 2 == 0 ? maxPlayers : maxPlayers + 1;
+    if (T < 2) T = 2;
+
+    int cols = T == 2 ? 2 : T / 2;
+    int rows = T == 2 ? 1 : 2;
+
     int gridCellsX = params.mapWidth / params.gridSize;
     int gridCellsY = params.mapHeight / params.gridSize;
+
+    int terrCellsX = gridCellsX / cols;
+    int terrCellsY = gridCellsY / rows;
+
+    float terrWidth = terrCellsX * params.gridSize;
+    float terrHeight = terrCellsY * params.gridSize;
+
+    std::vector<Vector2> playerSpawns;
+
+    for (int i = 0; i < T; i++) {
+        int col = i % cols;
+        int row = i / rows; // Wait, row = i / cols; my bad, wait
+
+        row = i / cols;
+
+        float centerX = col * terrWidth + terrWidth / 2.0f;
+        float centerY = row * terrHeight + terrHeight / 2.0f;
+
+        if (i < maxPlayers) {
+            float pSize = 32.0f;
+            entities.push_back(Entity{{centerX, centerY}, {pSize, pSize}, EntityType::PLAYER});
+            playerSpawns.push_back({centerX, centerY});
+        }
+    }
+
+    // Vertical borders
+    for (int col = 1; col < cols; col++) {
+        int borderX = col * terrCellsX;
+        for (int row = 0; row < rows; row++) {
+            int startY = row * terrCellsY;
+            int endY = startY + terrCellsY;
+
+            int gapSize = std::max(3, params.minPathWidth + 2);
+            int gapStart = GetRandomValue(startY + 2, endY - gapSize - 2);
+
+            for (int y = startY; y < endY; y++) {
+                if (y >= gapStart && y < gapStart + gapSize) continue;
+
+                Vector2 wallPos = {borderX * params.gridSize + params.gridSize / 2.0f,
+                                   y * params.gridSize + params.gridSize / 2.0f};
+                entities.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
+            }
+        }
+    }
+
+    // Horizontal borders
+    for (int row = 1; row < rows; row++) {
+        int borderY = row * terrCellsY;
+        for (int col = 0; col < cols; col++) {
+            int startX = col * terrCellsX;
+            int endX = startX + terrCellsX;
+
+            int gapSize = std::max(3, params.minPathWidth + 2);
+            int gapStart = GetRandomValue(startX + 2, endX - gapSize - 2);
+
+            for (int x = startX; x < endX; x++) {
+                if (x >= gapStart && x < gapStart + gapSize) continue;
+                if (col > 0 && x == col * terrCellsX) continue; // Avoid intersection overlaps
+
+                Vector2 wallPos = {x * params.gridSize + params.gridSize / 2.0f,
+                                   borderY * params.gridSize + params.gridSize / 2.0f};
+                entities.push_back(Entity{wallPos, {(float)params.gridSize, (float)params.gridSize}, EntityType::WALL});
+            }
+        }
+    }
+
+    // Generate random walls
     int targetWallCount = (gridCellsX * gridCellsY * params.wallDensity) / 100;
     int wallsPlaced = 0;
-
-    // Keep trying to place walls while ensuring paths remain clear
-    int maxAttempts = targetWallCount * 15;  // Increased for better distribution
+    int maxAttempts = targetWallCount * 15;  
     int attempts = 0;
 
     while (wallsPlaced < targetWallCount && attempts < maxAttempts) {
         attempts++;
 
-        // Random wall position and size
         int cellX = GetRandomValue(1, gridCellsX - 2);
         int cellY = GetRandomValue(1, gridCellsY - 2);
+
+        // Avoid borders
+        bool onBorder = false;
+        for (int c = 1; c < cols; c++) if (cellX == c * terrCellsX) onBorder = true;
+        for (int r = 1; r < rows; r++) if (cellY == r * terrCellsY) onBorder = true;
+        if (onBorder) continue;
+
         int wallWidth = GetRandomValue(1, 3) * params.gridSize;
         int wallHeight = GetRandomValue(1, 3) * params.gridSize;
 
         Vector2 wallPos = {cellX * params.gridSize + params.gridSize / 2.0f, 
-                          cellY * params.gridSize + params.gridSize / 2.0f};
+                           cellY * params.gridSize + params.gridSize / 2.0f};
 
-        // Check if wall is within safe zone around player spawn
-        float distToPlayer = std::sqrt((wallPos.x - player->pos.x) * (wallPos.x - player->pos.x) + 
-                                      (wallPos.y - player->pos.y) * (wallPos.y - player->pos.y));
+        // Check distance to all player spawns
+        bool nearSpawn = false;
         float safeZoneRadius = params.spawnSafeZone * params.gridSize;
-
-        if (distToPlayer < safeZoneRadius) {
-            continue;  // Skip this wall, too close to player spawn
+        for (const auto& spawn : playerSpawns) {
+            float distToPlayer = std::sqrt((wallPos.x - spawn.x) * (wallPos.x - spawn.x) + 
+                                          (wallPos.y - spawn.y) * (wallPos.y - spawn.y));
+            if (distToPlayer < safeZoneRadius) {
+                nearSpawn = true;
+                break;
+            }
         }
 
-        // Check if wall overlaps with existing walls (simple rejection)
-        bool overlaps = false;
+        if (nearSpawn) continue;
+
         Rectangle newWallRect = {wallPos.x - wallWidth/2.0f, wallPos.y - wallHeight/2.0f, 
                                 static_cast<float>(wallWidth), static_cast<float>(wallHeight)};
 
+        bool overlaps = false;
         for (const auto& entity : entities) {
             if (entity.type == EntityType::WALL) {
                 if (CheckCollisionRecs(newWallRect, entity.getRect())) {
@@ -137,28 +210,23 @@ void GenerateRandomWorld(std::vector<Entity>& entities, const WorldGenParams& pa
         }
 
         if (overlaps) {
-            continue;  // Skip overlapping walls
+            continue;
         }
 
         // Temporarily add wall to check if path still exists
         entities.push_back(Entity{wallPos, {static_cast<float>(wallWidth), static_cast<float>(wallHeight)}, EntityType::WALL});
 
-        // Skip pathfinding validation for first 20 walls (they shouldn't block main paths)
-        // Then validate only every 5th wall to keep performance reasonable
         bool shouldValidatePath = (wallsPlaced >= 20 && wallsPlaced % 5 == 0);
         bool pathValid = true;
 
-        if (shouldValidatePath) {
-            // Quick validation: check if player can reach a corner
-            Vector2 testDest = {params.mapWidth * 0.9f, params.mapHeight * 0.9f};
-            pathValid = IsPathClear(player->pos, testDest, entities, params.gridSize, params.mapWidth, params.mapHeight);
+        if (shouldValidatePath && playerSpawns.size() > 1) {
+            // Validate connection between the first and last spawned player
+            pathValid = IsPathClear(playerSpawns[0], playerSpawns.back(), entities, params.gridSize, params.mapWidth, params.mapHeight);
         }
 
         if (pathValid) {
-            // Path is clear (or we skipped validation), keep this wall
             wallsPlaced++;
         } else {
-            // Path is blocked, remove this wall
             entities.pop_back();
         }
     }

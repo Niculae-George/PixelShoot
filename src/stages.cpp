@@ -30,18 +30,15 @@ GameStage::GameStage(StageManager* manager, int screenWidth, int screenHeight)
     bulletSpeed = 500.0f;
     bulletSize = 8.0f;
 
-    // Create player
-    entities.push_back(Entity{{static_cast<float>(mapWidth) / 2, static_cast<float>(mapHeight) / 2}, 
-                             {playerSize, playerSize}, EntityType::PLAYER});
-
-    // Generate random world with walls
+    // Generate random world with walls and multiple players
     WorldGenParams worldParams = {
         mapWidth, 
         mapHeight, 
         gridSize,
         15,     // 15% wall density
         1,      // min path width (1 grid cell)
-        5       // safe zone radius around player spawn (5 grid cells = 200 pixels)
+        5,      // safe zone radius around player spawn (5 grid cells = 200 pixels)
+        4       // numPlayers (e.g. 4 for testing 4 territories)
     };
     GenerateRandomWorld(entities, worldParams);
 
